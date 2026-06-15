@@ -1,0 +1,76 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS Glue Python Shell job to ingest NYC TLC trip data from CloudFront HTTPS into S3
+
+Parameters:
+  TargetBucket:
+    Type: String
+    Default: mission-deh-hof-nyc-tlc-315527911454
+    Description: Target S3 bucket for NYC TLC data
+
+Resources:
+
+  GlueJobRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: nyc-tlc-glue-job-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: nyc-tlc-s3-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - arn:aws:s3:::nyc-tlc
+                  - arn:aws:s3:::nyc-tlc/*
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${TargetBucket}
+                  - !Sub arn:aws:s3:::${TargetBucket}/*
+
+  NYCTLCGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: nyc-tlc-ingestion-job
+      Description: Ingests NYC TLC trip data (fhvhv) from CloudFront HTTPS into S3
+      Role: !GetAtt GlueJobRole.Arn
+      GlueVersion: "3.0"
+      Timeout: 300
+      Command:
+        Name: pythonshell
+        ScriptLocation: !Sub s3://${TargetBucket}/scripts/nyc_tlc_ingestion_v2.py
+        PythonVersion: "3.9"
+      DefaultArguments:
+        "--job-bookmark-option": "job-bookmark-disable"
+        "--enable-metrics": "true"
+        "--enable-continuous-cloudwatch-log": "true"
+        "--additional-python-modules": "requests"
+        "--jobtype": "historical"
+      MaxCapacity: 0.0625
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+
+Outputs:
+  GlueJobName:
+    Description: Name of the Glue job
+    Value: !Ref NYCTLCGlueJob
+
+  GlueJobRoleArn:
+    Description: ARN of the IAM role used by the Glue job
+    Value: !GetAtt GlueJobRole.Arn
